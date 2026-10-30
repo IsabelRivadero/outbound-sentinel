@@ -1,0 +1,78 @@
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: sentinel-mosquitto
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:1883:1883"
+    volumes:
+      - ./mosquitto/config:/mosquitto/config:ro
+      - mosquitto_data:/mosquitto/data
+    networks:
+      - sentinel
+
+  influxdb:
+    image: influxdb:2.7
+    container_name: sentinel-influxdb
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8086:8086"
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: ${INFLUXDB_ADMIN_USER:?Falta INFLUXDB_ADMIN_USER}
+      DOCKER_INFLUXDB_INIT_PASSWORD: ${INFLUXDB_ADMIN_PASSWORD:?Falta INFLUXDB_ADMIN_PASSWORD}
+      DOCKER_INFLUXDB_INIT_ORG: ${INFLUXDB_ORG:?Falta INFLUXDB_ORG}
+      DOCKER_INFLUXDB_INIT_BUCKET: ${INFLUXDB_BUCKET:?Falta INFLUXDB_BUCKET}
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${INFLUXDB_ADMIN_TOKEN:?Falta INFLUXDB_ADMIN_TOKEN}
+      DOCKER_INFLUXDB_INIT_RETENTION: 720h
+      TZ: ${TZ:-UTC}
+    volumes:
+      - influxdb_data:/var/lib/influxdb2
+      - influxdb_config:/etc/influxdb2
+    networks:
+      - sentinel
+
+  nodered:
+    image: nodered/node-red:4.1.17-18
+    container_name: sentinel-nodered
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:1881:1880"
+    environment:
+      TZ: ${TZ:-UTC}
+    volumes:
+      - nodered_data:/data
+    depends_on:
+      - mosquitto
+      - influxdb
+    networks:
+      - sentinel
+
+  grafana:
+    image: grafana/grafana:11.5.2
+    container_name: sentinel-grafana
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:?Falta GRAFANA_ADMIN_USER}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?Falta GRAFANA_ADMIN_PASSWORD}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      TZ: ${TZ:-UTC}
+    volumes:
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - influxdb
+    networks:
+      - sentinel
+
+networks:
+  sentinel:
+    driver: bridge
+
+volumes:
+  mosquitto_data:
+  influxdb_data:
+  influxdb_config:
+  nodered_data:
+  grafana_data:
