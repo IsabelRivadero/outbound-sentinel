@@ -1,0 +1,46 @@
+# Outbound Sentinel - Digital Twin Configuration
+
+digital_twin:
+  enabled: true
+  evaluation_interval_seconds: 180
+
+  status:
+    normal: normal
+    warning: warning
+    critical: critical
+    unknown: unknown
+    unavailable: unavailable
+
+  data_quality:
+    require_timestamp: true
+    require_data_origin: true
+    max_telemetry_age_seconds: 360
+
+  gateway:
+    device_id: gateway-01
+
+    availability:
+      expected: true
+
+    network:
+      monitored_protocols:
+        - TCP
+
+      metrics:
+        - outbound_bytes_interval
+        - established_tcp_connections
+        - unique_external_destinations
+        - process_count
+
+    traffic_behavior:
+      anomaly_detection_enabled: true
+      minimum_historical_samples: 10
+      threshold: 3.5
+
+  compressor:
+    device_id: compressor-01
+    expected_state: operational
+
+  furnace:
+    device_id: furnace-01
+    expected_state: operational

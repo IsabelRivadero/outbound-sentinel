@@ -27,10 +27,12 @@ class NetworkMonitor:
 
             policy = config.get("policy", {})
             enabled = bool(policy.get("enabled", False))
+
             networks = [
                 ipaddress.ip_network(value)
                 for value in policy.get("authorized_cidrs", [])
             ]
+
             return networks, enabled
 
         except Exception as exc:
@@ -58,26 +60,51 @@ class NetworkMonitor:
             timeout=10,
             check=True,
         )
+
         return result.stdout.splitlines()
 
     @staticmethod
     def _extract_ip(address):
-        """Extrae una IP desde formatos IPv4 o IPv6 de ss."""
+        """
+        Extrae una dirección IP desde los formatos de ss.
+
+        Ejemplos:
+            192.168.1.10:443
+            [2001:db8::1]:443
+            [fe80::1%wlo1]:443
+        """
         address = address.strip()
 
+        if not address:
+            return None
+
+        # IPv6 entre corchetes, con puerto.
         if address.startswith("["):
             match = re.match(r"^\[([^\]]+)\]:(\d+)$", address)
-            return match.group(1) if match else None
 
-        if address.count(":") == 1:
-            host, port = address.rsplit(":", 1)
-            if port.isdigit():
-                return host
+            if not match:
+                return None
 
-        # IPv6 sin corchetes, si aparece en ese formato.
+            host = match.group(1)
+
+        else:
+            # IPv4 con puerto.
+            if address.count(":") == 1:
+                host, port = address.rsplit(":", 1)
+
+                if not port.isdigit():
+                    return None
+
+            else:
+                # Dirección sin puerto, si ss la devuelve así.
+                host = address
+
+        # Eliminar identificador de interfaz en IPv6 link-local.
+        if "%" in host:
+            host = host.split("%", 1)[0]
+
         try:
-            ipaddress.ip_address(address)
-            return address
+            return str(ipaddress.ip_address(host))
         except ValueError:
             return None
 
@@ -87,10 +114,12 @@ class NetworkMonitor:
 
         try:
             ip = ipaddress.ip_address(destination)
+
             return any(
                 ip.version == network.version and ip in network
                 for network in self.authorized_networks
             )
+
         except ValueError:
             return None
 
@@ -98,7 +127,11 @@ class NetworkMonitor:
         lines = self._run_ss()
 
         external_destinations = set()
+        authorized_destinations = set()
+        unauthorized_destinations = set()
         processes = set()
+
+        authorized = 0
         unauthorized = 0
         assessed = 0
         unknown_process_connections = 0
@@ -106,10 +139,17 @@ class NetworkMonitor:
         for line in lines:
             parts = line.split()
 
+            # Con ss -Htnp:
+            # parts[0] = Recv-Q
+            # parts[1] = Send-Q
+            # parts[2] = dirección local
+            # parts[3] = dirección remota
+            # parts[4] = información del proceso (si está disponible)
             if len(parts) < 4:
                 continue
 
             remote_ip = self._extract_ip(parts[3])
+
             if not remote_ip:
                 continue
 
@@ -118,14 +158,17 @@ class NetworkMonitor:
             except ValueError:
                 continue
 
-            # Solo contamos direcciones IP públicas como destinos externos.
+            # Solo analizamos destinos públicos.
             if not ip.is_global:
                 continue
 
-            external_destinations.add(str(ip))
+            destination = str(ip)
+            external_destinations.add(destination)
 
+            # La información de proceso puede no estar disponible.
             process_matches = re.findall(
-                r'users:\(\("([^"]+)",pid=(\d+)', line
+                r'users:\(\("([^"]+)",pid=(\d+)',
+                line,
             )
 
             if process_matches:
@@ -134,21 +177,51 @@ class NetworkMonitor:
             else:
                 unknown_process_connections += 1
 
-            authorization = self._is_authorized(str(ip))
+            # La clasificación solo se realiza si la política está activa.
+            authorization = self._is_authorized(destination)
 
-            if authorization is not None:
+            if authorization is True:
                 assessed += 1
-                if not authorization:
-                    unauthorized += 1
+                authorized += 1
+                authorized_destinations.add(destination)
+
+            elif authorization is False:
+                assessed += 1
+                unauthorized += 1
+                unauthorized_destinations.add(destination)
 
         return {
             "established_tcp_connections": len(lines),
-            "unique_external_destinations": len(external_destinations),
-            "external_destinations": sorted(external_destinations),
-            "processes_with_observed_connections": sorted(processes),
-            "process_count": len(processes) if processes else None,
+
+            "unique_external_destinations": len(
+                external_destinations
+            ),
+            "external_destinations": sorted(
+                external_destinations
+            ),
+
+            "authorized_destinations": (
+                sorted(authorized_destinations)
+                if self.policy_enabled else None
+            ),
+            "unauthorized_destinations": (
+                sorted(unauthorized_destinations)
+                if self.policy_enabled else None
+            ),
+
+            "processes_with_observed_connections": sorted(
+                processes
+            ),
+            "process_count": (
+                len(processes) if processes else None
+            ),
+
             "connections_without_process_attribution": (
                 unknown_process_connections
+            ),
+
+            "authorized_connections": (
+                authorized if self.policy_enabled else None
             ),
             "unauthorized_connections": (
                 unauthorized if self.policy_enabled else None
@@ -156,6 +229,7 @@ class NetworkMonitor:
             "assessed_external_connections": (
                 assessed if self.policy_enabled else None
             ),
+
             "policy_enabled": self.policy_enabled,
         }
 
@@ -165,9 +239,11 @@ class NetworkMonitor:
         if self.previous_tx_bytes is None:
             tx_delta = None
             tx_status = "baseline"
+
         elif current_tx_bytes >= self.previous_tx_bytes:
             tx_delta = current_tx_bytes - self.previous_tx_bytes
             tx_status = "measured"
+
         else:
             # El contador se reinició o disminuyó.
             tx_delta = None
@@ -194,4 +270,11 @@ if __name__ == "__main__":
         interface="wlo1",
         policy_file="config/authorized_destinations.yaml",
     )
-    print(json.dumps(monitor.collect(), indent=2, ensure_ascii=False))
+
+    print(
+        json.dumps(
+            monitor.collect(),
+            indent=2,
+            ensure_ascii=False,
+        )
+    )

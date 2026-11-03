@@ -1,0 +1,53 @@
+# Outbound Sentinel - Device Registry
+
+devices:
+  - device_id: gateway-01
+    name: Ubuntu Network Gateway
+    device_type: network_gateway
+    environment: development
+    data_origin: observed
+    enabled: true
+    telemetry:
+      interval_seconds: 120
+      protocol: MQTT
+      topic: outbound-sentinel/gateway
+      interface: wlo1
+    monitored_dimensions:
+      - availability
+      - network
+      - security_policy
+      - traffic_behavior
+
+  - device_id: compressor-01
+    name: Industrial Compressor
+    device_type: compressor
+    environment: simulation
+    data_origin: simulated
+    enabled: true
+    telemetry:
+      interval_seconds: 180
+      protocol: MQTT
+      topic: outbound-sentinel/telemetry/compressor-01
+    monitored_dimensions:
+      - availability
+      - temperature
+      - pressure
+      - energy
+      - network
+
+  - device_id: furnace-01
+    name: Industrial Furnace
+    device_type: furnace
+    environment: simulation
+    data_origin: simulated
+    enabled: true
+    telemetry:
+      interval_seconds: 180
+      protocol: MQTT
+      topic: outbound-sentinel/telemetry/furnace-01
+    monitored_dimensions:
+      - availability
+      - temperature
+      - energy
+      - uptime
+      - network
